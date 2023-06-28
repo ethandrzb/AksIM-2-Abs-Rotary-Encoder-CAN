@@ -44,6 +44,7 @@ CAN_HandleTypeDef hcan1;
 SPI_HandleTypeDef hspi1;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart2;
 
@@ -58,6 +59,7 @@ static void MX_SPI1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_CAN1_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -86,7 +88,7 @@ uint8_t encStatus = 0;
 uint8_t encCRC = 0;
 uint32_t CRCMessage;
 
-uint8_t CRCErrorCount = 255;
+uint8_t CRCErrorCount = 0;
 
 uint8_t CRCTable[64] = { 0x00, 0x03, 0x06, 0x05, 0x0C, 0x0F, 0x0A, 0x09, 
                             0x18, 0x1B, 0x1E, 0x1D, 0x14, 0x17, 0x12, 0x11, 
@@ -139,26 +141,6 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)
   CRCMessage = (uint32_t)(encStatus) << 28;
   CRCMessage += encPosition;
   CRCMessage <<= 2;
-
-  // Split encoder position into discrete bytes
-  TxDataCAN[0] = (encPosition >> 16) & 0x0003;
-  TxDataCAN[1] = (encPosition >> 8) & 0x00FF;
-  TxDataCAN[2] = encPosition & 0x00FF;
-
-  // CRC check passed?
-  if(calculateCRC(CRCMessage) == encCRC)
-  {
-    TxDataCAN[0] |= 0x10;
-  }
-  else
-  {
-    TxDataCAN[0] &= ~(0x10);
-    CRCErrorCount++;
-  }
-
-  TxDataCAN[3] = CRCErrorCount;
-
-  HAL_CAN_AddTxMessage(&hcan1, &TxHeader, TxDataCAN, &TxMailbox);
 
   sprintf(buffer, "%0X %d 0x%02X 0x%0X %s %d\n", encPosition, encStatus, encCRC, calculateCRC(CRCMessage), (calculateCRC(CRCMessage) == encCRC) ? "CRC MATCHED" : "CRC MISMATCH", CRCErrorCount);
   if(HAL_UART_Transmit(&huart2, buffer, sizeof(buffer), 100) != HAL_OK)
@@ -243,6 +225,28 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   {
       HAL_SPI_Receive_IT(&hspi1, &RxData[0], RX_DATA_LENGTH);
   }
+  else if(htim == &htim3)
+  {
+      // Split encoder position into discrete bytes
+      TxDataCAN[0] = (encPosition >> 16) & 0x0003;
+      TxDataCAN[1] = (encPosition >> 8) & 0x00FF;
+      TxDataCAN[2] = encPosition & 0x00FF;
+
+      // CRC check passed?
+      if(calculateCRC(CRCMessage) == encCRC)
+      {
+        TxDataCAN[0] |= 0x10;
+      }
+      else
+      {
+        TxDataCAN[0] &= ~(0x10);
+        CRCErrorCount++;
+      }
+
+      TxDataCAN[3] = CRCErrorCount;
+
+      HAL_CAN_AddTxMessage(&hcan1, &TxHeader, TxDataCAN, &TxMailbox);
+  }
 }
 
 /* USER CODE END 0 */
@@ -279,9 +283,11 @@ int main(void)
   MX_USART2_UART_Init();
   MX_TIM2_Init();
   MX_CAN1_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
-  // HAL_TIM_Base_Start_IT(&htim2);
+  HAL_TIM_Base_Start_IT(&htim2);
+  HAL_TIM_Base_Start_IT(&htim3);
 
   HAL_CAN_Start(&hcan1);
   HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);
@@ -290,8 +296,8 @@ int main(void)
   TxHeader.DLC = 4;
   TxHeader.IDE = CAN_ID_STD;  // Standard CAN ID
   TxHeader.RTR = CAN_RTR_DATA;  // Specify that the packet contains data
-  TxHeader.StdId = 0x103; // ID of transmitter
-  // TxHeader.StdId = 0x446; // ID of transmitter
+  // TxHeader.StdId = 0x103; // ID of transmitter
+  TxHeader.StdId = 0x446; // ID of transmitter
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -393,11 +399,11 @@ static void MX_CAN1_Init(void)
   canFilterConfig.FilterActivation = CAN_FILTER_ENABLE;
   canFilterConfig.FilterBank = 18;
   canFilterConfig.FilterFIFOAssignment = CAN_FilterFIFO0;
-  canFilterConfig.FilterIdHigh = 0x446 << 5;
-  // canFilterConfig.FilterIdHigh = 0x103 << 5;
+  // canFilterConfig.FilterIdHigh = 0x446 << 5;
+  canFilterConfig.FilterIdHigh = 0x103 << 5;
   canFilterConfig.FilterIdLow = 0;
-  canFilterConfig.FilterMaskIdHigh = 0x446 << 5;
-  // canFilterConfig.FilterMaskIdHigh = 0x103 << 5;
+  // canFilterConfig.FilterMaskIdHigh = 0x446 << 5;
+  canFilterConfig.FilterMaskIdHigh = 0x103 << 5;
   canFilterConfig.FilterMaskIdLow = 0x0000;
   canFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
   canFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
@@ -488,6 +494,51 @@ static void MX_TIM2_Init(void)
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 9000-1;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 5000-1;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
 
 }
 
